@@ -1,0 +1,25 @@
+# 用 GHCR 预构建镜像运行音源容器（不本地 build）。
+# 用途：只把音源跑起来给 fnmusic-gateway 做兜底 / 给飞牛官方音乐 App 用（需另装代理，见 README）。
+#
+# 用法：
+#   cp .env.example .env && chmod 600 .env     # 三选一：FNMUSIC_MUSICDL_ENABLED / FNMUSIC_NETEASE_ENABLED / FNMUSIC_LX_ENABLED
+#   docker compose -f docker-compose.ghcr.yml pull
+#   docker compose -f docker-compose.ghcr.yml up -d
+#   curl -s 127.0.0.1:8768/healthz   # musicdl；洛雪 8772 / 网易 8770 / WebUI 8774
+#
+# 镜像架构：linux/amd64 + linux/arm64（多架构 manifest，NAS 自动选）。
+# 版本：默认 latest；要锁定就 FNMUSIC_IMAGE_TAG=3.0.0-3。
+services:
+  fnmusic-sources:
+    image: ghcr.io/kid941005/fnos_music_ext:${FNMUSIC_IMAGE_TAG:-latest}
+    container_name: fnmusic-sources
+    ports:
+      - "127.0.0.1:8768:8001"  # musicdl
+      - "127.0.0.1:8770:8002"  # netease
+      - "127.0.0.1:8772:8003"  # lxmusic
+      - "127.0.0.1:8774:8004"  # WebUI
+    volumes:
+      - ./sources-data:/data
+      - .:/repo
+      - /run/fnmusic-ext:/run/fnmusic-ext:ro
+    restart: unless-stopped

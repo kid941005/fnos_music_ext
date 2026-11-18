@@ -111,14 +111,33 @@ jobs:
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
           short="${GITHUB_SHA::7}"
-          echo "tags=${IMAGE}:latest,${IMAGE}:${version},${IMAGE}:sha-${short}" >> "$GITHUB_OUTPUT"
+          echo "tags=${IMAGE}:latest ${IMAGE}:${version} ${IMAGE}:sha-${short}" >> "$GITHUB_OUTPUT"
 
       - name: Create multi-arch manifest
-        working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(printf '%s\n' ${{ steps.meta.outputs.tags }} | sed 's/^/-t /' | tr '\n' ' ') \
-            $(for f in *; do echo "${IMAGE}@sha256:${f}"; done)
+          args=""
+          for t in ${{ steps.meta.outputs.tags }}; do args="$args -t $t"; done
+          digests=""
+          for f in /tmp/digests/*; do digests="$digests ${IMAGE}@sha256:$(basename "$f")"; done
+          echo "creating:$args"
+          docker buildx imagetools create $args $digests
 
       - name: Inspect manifest
         run: docker buildx imagetools inspect "${IMAGE}:latest"
+
+      - name: Smoke test published image
+        run: |
+          mkdir -p /tmp/fnrepo
+          printf '%s\n' 'FNMUSIC_MUSICDL_ENABLED=true' 'FNMUSIC_WEBUI_ENABLED=false' > /tmp/fnrepo/.env
+          name=fnmusic-ghcr-smoke
+          trap 'docker logs "$name" || true; docker rm -f "$name" || true' EXIT
+          docker run -d --name "$name" --platform linux/amd64 -v /tmp/fnrepo:/repo "${IMAGE}:latest"
+          for i in $(seq 1 60); do
+            if docker exec "$name" python -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8001/healthz", timeout=2)'; then
+              echo "published image healthz OK"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "published image healthz NOT ready" >&2
+          exit 1
