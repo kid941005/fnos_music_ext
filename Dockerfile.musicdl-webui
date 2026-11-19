@@ -35,7 +35,7 @@ RUN groupadd -g 1000 appuser \
     && chown -R appuser:appuser /data
 
 # 单源服务
-COPY --chown=appuser:appuser musicdl-service/app.py musicdl-service/worker.py musicdl-service/search_core.py musicdl-service/hardening.py /srv/musicdl-service/
+COPY --chown=appuser:appuser musicdl-service/app.py musicdl-service/worker.py musicdl-service/search_core.py musicdl-service/search_engines.py musicdl-service/hardening.py /srv/musicdl-service/
 # WebUI（app + 前端静态资源）
 COPY --chown=appuser:appuser webui-service/app.py webui-service/config_jobs.py /srv/webui-service/
 COPY --chown=appuser:appuser webui-service/static/ /srv/webui-service/static/

@@ -18,7 +18,7 @@ WORKDIR /app
 COPY musicdl-service/requirements.txt ./
 RUN pip install --no-cache-dir -i "${PIP_INDEX_URL}" -r requirements.txt
 
-COPY musicdl-service/app.py musicdl-service/worker.py musicdl-service/search_core.py musicdl-service/hardening.py ./
+COPY musicdl-service/app.py musicdl-service/worker.py musicdl-service/search_core.py musicdl-service/search_engines.py musicdl-service/hardening.py ./
 
 RUN groupadd -g 1000 appuser 2>/dev/null || true; \
     useradd -u 1000 -g 1000 -m appuser 2>/dev/null || true; \
