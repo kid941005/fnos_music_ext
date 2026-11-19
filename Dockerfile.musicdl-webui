@@ -1,0 +1,58 @@
+# 轻量音源镜像（带 WebUI）：musicdl 单源 + 管理页，仍比完整镜像小一半以上。
+# 复用上游 container/entrypoint.sh、supervisord.conf、healthcheck.sh 与 env_flag.sh，
+# 因此 .env 开关语义、进程管理与健康检查与完整镜像一致；只是镜像里没有
+# Node / 洛雪 / 网易 / ffmpeg（转码由 fnmusic-gateway 负责）。
+ARG BASE_IMAGE=python:3.13-slim
+FROM ${BASE_IMAGE}
+
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    XDG_DATA_HOME=/data \
+    XDG_CACHE_HOME=/data/cache \
+    MUSICDL_SOURCES=KuwoMusicClient,MiguMusicClient \
+    FNMUSIC_MUSICDL_ENABLED=true \
+    FNMUSIC_WEBUI_ENABLED=true \
+    FNMUSIC_LOG_DIR=/data/logs
+
+WORKDIR /srv
+
+# supervisor 管进程，curl 供 entrypoint/healthcheck 探活
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends supervisor ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY musicdl-service/requirements.txt /srv/req.musicdl
+COPY webui-service/requirements.txt /srv/req.webui
+RUN pip install --no-cache-dir -i "${PIP_INDEX_URL}" -r /srv/req.musicdl -r /srv/req.webui \
+    && rm -f /srv/req.musicdl /srv/req.webui
+
+RUN groupadd -g 1000 appuser \
+    && useradd -m -u 1000 -g 1000 appuser \
+    && mkdir -p /data/cache /data/config /data/logs \
+    && chown -R appuser:appuser /data
+
+# 单源服务
+COPY --chown=appuser:appuser musicdl-service/app.py musicdl-service/worker.py musicdl-service/search_core.py musicdl-service/hardening.py /srv/musicdl-service/
+# WebUI（app + 前端静态资源）
+COPY --chown=appuser:appuser webui-service/app.py webui-service/config_jobs.py /srv/webui-service/
+COPY --chown=appuser:appuser webui-service/static/ /srv/webui-service/static/
+# WebUI 只依赖 proxy 的这几个纯 stdlib / httpx 模块（与完整镜像同一清单）
+COPY --chown=appuser:appuser proxy/__init__.py proxy/direct_play.py proxy/env_merge.py proxy/fnlog.py proxy/llm_usage.py proxy/media_url.py proxy/netease_legacy.py proxy/publicplaylists.py proxy/quality_policy.py proxy/userstorage.py proxy/version.py /srv/proxy/
+COPY --chown=appuser:appuser VERSION RELEASE_CHANNEL /srv/
+RUN chmod 0644 /srv/VERSION /srv/RELEASE_CHANNEL
+
+# 进程表 / 入口 / 健康检查：直接复用上游，保证与完整镜像行为一致
+COPY container/supervisord.conf /etc/supervisor/supervisord.conf
+COPY container/env_flag.sh container/entrypoint.sh container/healthcheck.sh /usr/local/bin/
+RUN chmod 0755 /usr/local/bin/env_flag.sh /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh
+
+USER appuser
+EXPOSE 8001 8004
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD ["/usr/local/bin/healthcheck.sh"]
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
