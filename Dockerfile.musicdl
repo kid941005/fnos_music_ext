@@ -1,0 +1,33 @@
+# 轻量音源镜像：只含 musicdl 单源服务（搜索 / 流代理 / 歌词）。
+# 不含 WebUI、洛雪、网易云、Node、ffmpeg —— 转码由 fnmusic-gateway 负责。
+# 适用：只需要「搜索 / 下载 / 试听 / 在线播放」四项能力。
+ARG BASE_IMAGE=python:3.13-slim
+FROM ${BASE_IMAGE}
+
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    XDG_DATA_HOME=/data \
+    XDG_CACHE_HOME=/data/cache \
+    MUSICDL_SOURCES=KuwoMusicClient,MiguMusicClient
+
+WORKDIR /app
+
+COPY musicdl-service/requirements.txt ./
+RUN pip install --no-cache-dir -i "${PIP_INDEX_URL}" -r requirements.txt
+
+COPY musicdl-service/app.py musicdl-service/worker.py musicdl-service/search_core.py musicdl-service/hardening.py ./
+
+RUN groupadd -g 1000 appuser 2>/dev/null || true; \
+    useradd -u 1000 -g 1000 -m appuser 2>/dev/null || true; \
+    mkdir -p /data && chown -R 1000:1000 /app /data
+USER 1000:1000
+
+EXPOSE 8001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/healthz', timeout=4).status==200 else 1)"
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001", "--no-access-log"]
